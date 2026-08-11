@@ -55,8 +55,6 @@
 <div id="board-container"></div>
 
 <script>
-    const dbUrl = "DB_URL_PLACEHOLDER";
-    const myColor = COLOR_PLACEHOLDER;
     const boardSize = 15;
     const step = 40; 
     const offset = 20; 
@@ -66,7 +64,13 @@
     const timerDisplay = document.getElementById("timer");
     
     let intersections = [];
-    let currentData = null;
+    
+    // 로컬 상태 관리 (DB 대체)
+    let currentData = { 
+        turn: 1, 
+        board: Array(15).fill().map(()=>Array(15).fill(0)), 
+        last_time: Date.now() 
+    };
 
     // 1. 바둑판 그리기
     for(let i=0; i<boardSize; i++) {
@@ -85,25 +89,13 @@
         }
     }
     
-    // 2. DB 상태 가져오기
-    async function fetchState() {
-        try {
-            let res = await fetch(dbUrl);
-            currentData = await res.json();
-            if(currentData && currentData.board) {
-                updateBoardUI(currentData);
-                checkTimer(currentData);
-            }
-        } catch(e) { console.error(e); }
-    }
-    
-    // 3. UI 및 턴 업데이트
-    function updateBoardUI(data) {
-        turnDisplay.innerText = data.turn === 1 ? "현재 턴: 흑(⚫)" : "현재 턴: 백(⚪)";
+    // 2. UI 및 턴 업데이트
+    function updateBoardUI() {
+        turnDisplay.innerText = currentData.turn === 1 ? "현재 턴: 흑(⚫)" : "현재 턴: 백(⚪)";
         
         for(let r=0; r<boardSize; r++) {
             for(let c=0; c<boardSize; c++) {
-                let val = data.board[r][c];
+                let val = currentData.board[r][c];
                 let dot = intersections[r][c];
                 dot.className = "intersection"; 
                 if(val === 1) dot.classList.add("stone-black");
@@ -112,66 +104,49 @@
         }
     }
 
-    // 4. 타이머 로직 (30초 제한)
-    function checkTimer(data) {
-        if (!data.last_time) return;
-        
-        let elapsed = Math.floor((Date.now() - data.last_time) / 1000);
+    // 3. 타이머 로직 (30초 제한)
+    function checkTimer() {
+        let elapsed = Math.floor((Date.now() - currentData.last_time) / 1000);
         let remain = 30 - elapsed;
         
         if (remain <= 0) {
             timerDisplay.innerText = "시간 초과!";
-            // 시간 초과 시 턴 넘기기 로직 (원한다면 패배 처리로 변경 가능)
-            if (data.turn === myColor) passTurn(data);
+            passTurn(); // 30초 지나면 턴 넘김
         } else {
             timerDisplay.innerText = `남은 시간: ${remain}초`;
         }
     }
 
-    async function passTurn(data) {
-        data.turn = (data.turn === 1) ? 2 : 1;
-        data.last_time = Date.now();
-        await fetch(dbUrl, { method: 'PUT', body: JSON.stringify(data) });
-        fetchState();
+    function passTurn() {
+        currentData.turn = (currentData.turn === 1) ? 2 : 1;
+        currentData.last_time = Date.now();
+        updateBoardUI();
     }
     
-    // 5. 렌주룰(금수) 체크 함수 (흑돌만 적용)
+    // 4. 금수 체크 로직 (임시)
     function checkForbidden(board, r, c) {
-        if (myColor === 2) return false; // 백돌은 금수 없음
-        
-        // TODO: 완벽한 3-3, 4-4 렌주룰 알고리즘은 매우 복잡하므로 
-        // 여기에 8방향 탐색 알고리즘을 추가해야 합니다.
-        // 임시로 장목(6목 이상)만 금지하는 간단한 로직 예시를 추가할 수 있습니다.
-        
-        return false; // 금수면 true 반환
+        if (currentData.turn === 2) return false; 
+        return false;
     }
     
-    // 6. 돌 놓기 액션
-    async function placeStone(r, c) {
-        if (!currentData || !currentData.board) {
-            currentData = { turn: 1, board: Array(15).fill().map(()=>Array(15).fill(0)), last_time: Date.now() };
-        }
-        
+    // 5. 돌 놓기 액션
+    function placeStone(r, c) {
         if (currentData.board[r][c] !== 0) return; 
-        if (currentData.turn !== myColor) {
-            alert("지금은 당신의 차례가 아닙니다!"); return;
-        }
-
-        // 금수 자리인지 확인 (흑돌)
+        
         if (checkForbidden(currentData.board, r, c)) {
             alert("금수 자리입니다! (3-3, 4-4, 또는 장목)"); return;
         }
         
-        currentData.board[r][c] = myColor;
-        currentData.turn = (myColor === 1) ? 2 : 1;
+        currentData.board[r][c] = currentData.turn; // 현재 턴의 색깔로 돌 놓기
+        currentData.turn = (currentData.turn === 1) ? 2 : 1; // 턴 변경
         currentData.last_time = Date.now(); // 시간 리셋
         
-        await fetch(dbUrl, { method: 'PUT', body: JSON.stringify(currentData) });
-        updateBoardUI(currentData); 
+        updateBoardUI(); 
     }
     
-    setInterval(fetchState, 1000);
-    fetchState();
+    // 1초마다 타이머 확인
+    setInterval(checkTimer, 1000);
+    updateBoardUI();
 </script>
 </body>
 </html>
