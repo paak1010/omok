@@ -13,7 +13,7 @@ except KeyError:
     st.error("Secrets에 'firebase_url'을 설정해주세요.")
     st.stop()
 
-st.title("⚫ 렌주룰 오목 (금수 표시 추가) ⚪")
+st.title("⚫ 렌주룰 오목 (두기 버튼 & 마지막 돌 표시) ⚪")
 
 if 'my_color' not in st.session_state:
     st.session_state.my_color = 1 
@@ -48,27 +48,43 @@ html_code = """
         margin-left: -17px; margin-top: -17px;
         border-radius: 50%; cursor: pointer; z-index: 10;
     }
-    .intersection:hover { background-color: rgba(0,0,0,0.2); }
+    .intersection:hover { background-color: rgba(0,0,0,0.1); }
     
+    /* 제출용 버튼 디자인 */
+    #submit-btn {
+        margin-top: 20px; padding: 12px 50px; font-size: 20px; font-weight: bold;
+        color: white; background-color: #1a73e8; border: none; border-radius: 8px;
+        cursor: pointer; transition: 0.2s; box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+    }
+    #submit-btn:disabled { background-color: #cccccc; cursor: not-allowed; box-shadow: none; color: #777;}
+    #submit-btn:hover:not(:disabled) { background-color: #1557b0; }
+
     /* 금수(✕) 표시 디자인 */
     .forbidden::after {
-        content: '✕';
-        color: #d93025;
-        font-size: 24px;
-        position: absolute;
-        top: 50%; left: 50%;
-        transform: translate(-50%, -50%);
-        pointer-events: none; /* 클릭 방해 안함 */
+        content: '✕'; color: #d93025; font-size: 24px;
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        pointer-events: none;
+    }
+    
+    /* 마지막 둔 돌 표시 (빨간색 점) */
+    .last-move::after {
+        content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 12px; height: 12px; background-color: #ff3333; border-radius: 50%; pointer-events: none;
     }
     
     .stone-black { background-color: #111; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); background-image: radial-gradient(circle at 10px 10px, #555, #000); }
     .stone-white { background-color: #f9f9f9; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); background-image: radial-gradient(circle at 10px 10px, #fff, #ccc); }
+    
+    /* 클릭 시 나타나는 반투명 미리보기 돌 */
+    .preview-black { background-color: #111; opacity: 0.5; }
+    .preview-white { background-color: #f9f9f9; opacity: 0.5; }
 </style>
 </head>
 <body>
 
 <div id="status-text">게임 데이터를 불러오는 중...</div>
 <div id="board-container"></div>
+<button id="submit-btn" onclick="submitMove()" disabled>두기 (제출)</button>
 
 <script>
     const dbUrl = "DB_URL_PLACEHOLDER";
@@ -78,7 +94,11 @@ html_code = """
     
     const container = document.getElementById("board-container");
     const statusText = document.getElementById("status-text");
+    const submitBtn = document.getElementById("submit-btn");
+    
     let intersections = [];
+    let currentDataCache = null; // 가장 최근 게임 상태 저장
+    let selectedSpot = null;     // 유저가 클릭한 임시 위치 {r, c}
 
     // 바둑판 생성
     for(let i=0; i<boardSize; i++) {
@@ -93,13 +113,12 @@ html_code = """
             dot.className = "intersection";
             dot.style.top = (offset + r * step) + "px";
             dot.style.left = (offset + c * step) + "px";
-            dot.onclick = () => placeStone(r, c);
+            dot.onclick = () => selectSpot(r, c); // 바로 두는 게 아니라 '선택'만 함
             container.appendChild(dot);
             intersections[r][c] = dot;
         }
     }
     
-    // 승리 조건 체크
     function checkWin(board, r, c, color) {
         const directions = [ [[0, 1], [0, -1]], [[1, 0], [-1, 0]], [[1, 1], [-1, -1]], [[1, -1], [-1, 1]] ];
         for (let d = 0; d < 4; d++) {
@@ -111,25 +130,21 @@ html_code = """
                     count++; nr += dr; nc += dc;
                 }
             }
-            if (count === 5) return true; // 백은 6목도 승리지만, 여기선 기본 5목만 체크
+            if (count === 5) return true; 
         }
         return false;
     }
 
-    // ★ 렌주룰 (금수) 판별 함수 ★
     function isForbidden(board, r, c) {
-        if (myColor === 2) return false; // 백돌은 금수가 없음
-
+        if (myColor === 2) return false; 
         let lines = [];
-        let dr = [0, 1, 1, 1];
-        let dc = [1, 0, 1, -1];
+        let dr = [0, 1, 1, 1]; let dc = [1, 0, 1, -1];
         
-        // 4방향으로 돌을 나열해서 문자열로 만듦 (E:빈칸, B:흑돌, W:백돌/벽)
         for(let i=0; i<4; i++) {
             let str = "";
             for(let j=-5; j<=5; j++) {
                 let nr = r + j*dr[i]; let nc = c + j*dc[i];
-                if(j === 0) str += "B"; // 현재 놓을 자리
+                if(j === 0) str += "B"; 
                 else if(nr<0 || nr>=15 || nc<0 || nc>=15) str += "W";
                 else if(board[nr][nc]===1) str += "B";
                 else if(board[nr][nc]===2) str += "W";
@@ -138,19 +153,14 @@ html_code = """
             lines.push(str);
         }
 
-        // 1. 5목 완성인가? (승리 우선이므로 금수 아님)
         let isFive = lines.some(l => l.includes("BBBBB") && !l.includes("BBBBBB"));
         if (isFive) return false; 
 
-        // 2. 장목 (6목 이상) - 흑돌은 무조건 금수
         let isOverline = lines.some(l => l.includes("BBBBBB"));
         if (isOverline) return true; 
 
-        let fourCount = 0;
-        let openThreeCount = 0;
-
+        let fourCount = 0; let openThreeCount = 0;
         lines.forEach(l => {
-            // 4-4 체크 (빈칸 E를 채웠을 때 5목이 되는 자리가 있는지 확인)
             let makeFiveSpots = 0;
             for(let i=0; i<l.length; i++) {
                 if (l[i] === 'E') {
@@ -160,19 +170,12 @@ html_code = """
             }
             if (makeFiveSpots > 0) fourCount++;
 
-            // 3-3 체크 (열린 3 패턴 확인)
             let isOpen3 = false;
-            if (/(?<!B)EEBBBE(?!B)/.test(l)) isOpen3 = true;
-            if (/(?<!B)EBBBEE(?!B)/.test(l)) isOpen3 = true;
-            if (/(?<!B)EBEBBE(?!B)/.test(l)) isOpen3 = true;
-            if (/(?<!B)EBBEBE(?!B)/.test(l)) isOpen3 = true;
+            if (/(?<!B)EEBBBE(?!B)/.test(l) || /(?<!B)EBBBEE(?!B)/.test(l) || /(?<!B)EBEBBE(?!B)/.test(l) || /(?<!B)EBBEBE(?!B)/.test(l)) isOpen3 = true;
             if (isOpen3) openThreeCount++;
         });
 
-        // 쌍사(4-4) 이거나 쌍삼(3-3) 이면 금수
-        if (fourCount >= 2) return true; 
-        if (openThreeCount >= 2) return true; 
-
+        if (fourCount >= 2 || openThreeCount >= 2) return true; 
         return false;
     }
 
@@ -180,30 +183,46 @@ html_code = """
         try {
             let res = await fetch(dbUrl);
             let data = await res.json();
-            if(data && data.board) updateBoardUI(data);
+            if(data && data.board) {
+                currentDataCache = data;
+                
+                // 만약 선택해둔 자리에 상대가 돌을 놨거나 내 턴이 아니게 되면 선택 취소
+                if(selectedSpot) {
+                    if (data.turn !== myColor || data.board[selectedSpot.r][selectedSpot.c] !== 0) {
+                        selectedSpot = null; 
+                    }
+                }
+                updateBoardUI();
+            }
         } catch(e) { console.error(e); }
     }
     
-    function updateBoardUI(data) {
+    function updateBoardUI() {
+        if(!currentDataCache) return;
+        let data = currentDataCache;
         let boardData = data.board;
         
+        // 상태 텍스트 갱신
         if (data.winner && data.winner !== 0) {
             statusText.innerHTML = data.winner === 1 ? "🎉 <b>흑돌(⚫) 승리!</b>" : "🎉 <b>백돌(⚪) 승리!</b>";
             statusText.style.color = "#d93025";
+            submitBtn.disabled = true;
         } else {
             let isMyTurn = (data.turn === myColor);
-            statusText.innerHTML = (isMyTurn ? "➡️ 내 차례입니다! " : "⏳ 상대방 대기 중... ") + 
-                                   (data.turn === 1 ? "흑(⚫)" : "백(⚪)");
+            statusText.innerHTML = (isMyTurn ? "➡️ 내 차례입니다! " : "⏳ 상대방 대기 중... ") + (data.turn === 1 ? "흑(⚫)" : "백(⚪)");
             statusText.style.color = isMyTurn ? "#1a73e8" : "#000";
+            
+            // 두기 버튼 활성화 로직
+            if (isMyTurn && selectedSpot) submitBtn.disabled = false;
+            else submitBtn.disabled = true;
         }
 
-        // 바둑판 다시 그리기
+        // 바둑판 그리기
         for(let r=0; r<boardSize; r++) {
             for(let c=0; c<boardSize; c++) {
                 let val = boardData[r][c];
                 let dot = intersections[r][c];
                 
-                // 기존 클래스 싹 비우기
                 dot.className = "intersection"; 
                 
                 if(val === 1) {
@@ -211,37 +230,62 @@ html_code = """
                 } else if(val === 2) {
                     dot.classList.add("stone-white");
                 } else {
-                    // 빈 칸이고, 게임이 안 끝났고, 내(흑돌) 차례일 때 금수 계산
+                    // 금수 표시 (내 차례일 때만)
                     if (myColor === 1 && data.turn === 1 && !data.winner) {
-                        if (isForbidden(boardData, r, c)) {
-                            dot.classList.add("forbidden");
-                        }
+                        if (isForbidden(boardData, r, c)) dot.classList.add("forbidden");
                     }
+                }
+                
+                // 마지막 둔 돌 빨간점 표시
+                if (data.lastMove && data.lastMove.r === r && data.lastMove.c === c) {
+                    dot.classList.add("last-move");
+                }
+                
+                // 내가 방금 클릭한(선택한) 자리 반투명 표시
+                if (selectedSpot && selectedSpot.r === r && selectedSpot.c === c) {
+                    dot.classList.add(myColor === 1 ? "preview-black" : "preview-white");
                 }
             }
         }
     }
     
-    async function placeStone(r, c) {
-        let res = await fetch(dbUrl);
-        let data = await res.json();
+    // 돌 위치 클릭 시 (임시 선택)
+    function selectSpot(r, c) {
+        if (!currentDataCache) return;
+        let data = currentDataCache;
         
-        if (!data || !data.board) return;
-        if (data.winner && data.winner !== 0) {
-            alert("이미 게임이 종료되었습니다."); return;
-        }
-        if (data.board[r][c] !== 0) return; 
-        if (data.turn !== myColor) {
-            alert("지금은 당신의 차례가 아닙니다!"); return;
-        }
-
-        // 금수 자리 방어벽
+        if (data.winner && data.winner !== 0) return; // 끝난 게임
+        if (data.turn !== myColor) return;            // 내 차례 아님
+        if (data.board[r][c] !== 0) return;           // 돌 이미 있음
+        
         if (myColor === 1 && isForbidden(data.board, r, c)) {
-            alert("이곳은 금수(3-3, 4-4, 6목) 자리라서 흑돌을 둘 수 없습니다!");
+            alert("이곳은 금수(3-3, 4-4, 6목) 자리입니다!");
             return;
         }
         
+        selectedSpot = {r: r, c: c};
+        updateBoardUI(); 
+    }
+
+    // "두기" 버튼 클릭 시 (실제 서버로 전송)
+    async function submitMove() {
+        if(!selectedSpot || !currentDataCache) return;
+        
+        submitBtn.disabled = true; // 중복 클릭 방지
+        let r = selectedSpot.r;
+        let c = selectedSpot.c;
+        
+        // 최신 DB를 한 번 더 체크해서 충돌 방지
+        let res = await fetch(dbUrl);
+        let data = await res.json();
+        
+        if (data.board[r][c] !== 0 || data.turn !== myColor) {
+            alert("유효하지 않은 수입니다. 바둑판 상황이 변경되었습니다.");
+            selectedSpot = null; fetchState(); return;
+        }
+
         data.board[r][c] = myColor;
+        data.lastMove = {r: r, c: c}; // 마지막 둔 돌 위치 저장
         
         if (checkWin(data.board, r, c, myColor)) {
             data.winner = myColor; 
@@ -249,8 +293,10 @@ html_code = """
             data.turn = (myColor === 1) ? 2 : 1; 
         }
         
+        selectedSpot = null;
         await fetch(dbUrl, { method: 'PUT', body: JSON.stringify(data) });
-        updateBoardUI(data); 
+        currentDataCache = data;
+        updateBoardUI(); 
     }
     
     setInterval(fetchState, 1000);
@@ -262,7 +308,8 @@ html_code = """
 
 html_code = html_code.replace("DB_URL_PLACEHOLDER", DB_URL).replace("COLOR_PLACEHOLDER", str(st.session_state.my_color))
 
-components.html(html_code, height=670)
+# 버튼과 텍스트 공간이 추가되었으므로 높이를 750으로 넉넉하게 변경
+components.html(html_code, height=750) 
 
 st.divider()
 
@@ -270,7 +317,8 @@ if st.button("🔄 게임 초기화 (새 게임 시작)"):
     empty_data = {
         "board": [[0]*15 for _ in range(15)],
         "turn": 1,
-        "winner": 0
+        "winner": 0,
+        "lastMove": None
     }
     requests.put(DB_URL, data=json.dumps(empty_data))
     st.rerun()
