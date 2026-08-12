@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import requests
 import json
 
-st.set_page_config(page_title="멘소래담 오목", layout="centered")
+st.set_page_config(page_title="멘소래담 오목", layout="wide")
 
 try:
     DB_URL = st.secrets["firebase_url"]
