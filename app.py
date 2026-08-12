@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import requests
 import json
 
-st.set_page_config(page_title="실시간 스팀릿 오목", layout="centered")
+st.set_page_config(page_title="멘소래담 오목", layout="centered")
 
 try:
     DB_URL = st.secrets["firebase_url"]
@@ -13,7 +13,7 @@ except KeyError:
     st.error("Secrets에 'firebase_url'을 설정해주세요.")
     st.stop()
 
-st.title("⚫ 렌주룰 오목 (두기 버튼 & 마지막 돌 표시) ⚪")
+st.title("⚫ 멘소래담 오목 ⚪")
 
 if 'my_color' not in st.session_state:
     st.session_state.my_color = 1 
@@ -35,13 +35,15 @@ html_code = """
         font-size: 20px; font-weight: bold; margin: 15px 0; height: 30px;
     }
 
+    /* 19x19 사이즈에 맞춰 760px로 확장 */
     #board-container {
-        position: relative; width: 600px; height: 600px;
+        position: relative; width: 760px; height: 760px;
         background-color: #DC9A52; box-shadow: 5px 5px 15px rgba(0,0,0,0.3); border: 2px solid #553311;
     }
     
-    .line-h { position: absolute; height: 2px; background-color: #333; width: 560px; left: 20px; }
-    .line-v { position: absolute; width: 2px; background-color: #333; height: 560px; top: 20px; }
+    /* 선 길이 19x19에 맞춰 720px로 확장 */
+    .line-h { position: absolute; height: 2px; background-color: #333; width: 720px; left: 20px; }
+    .line-v { position: absolute; width: 2px; background-color: #333; height: 720px; top: 20px; }
     
     .intersection {
         position: absolute; width: 34px; height: 34px;
@@ -50,7 +52,6 @@ html_code = """
     }
     .intersection:hover { background-color: rgba(0,0,0,0.1); }
     
-    /* 제출용 버튼 디자인 */
     #submit-btn {
         margin-top: 20px; padding: 12px 50px; font-size: 20px; font-weight: bold;
         color: white; background-color: #1a73e8; border: none; border-radius: 8px;
@@ -59,14 +60,12 @@ html_code = """
     #submit-btn:disabled { background-color: #cccccc; cursor: not-allowed; box-shadow: none; color: #777;}
     #submit-btn:hover:not(:disabled) { background-color: #1557b0; }
 
-    /* 금수(✕) 표시 디자인 */
     .forbidden::after {
         content: '✕'; color: #d93025; font-size: 24px;
         position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
         pointer-events: none;
     }
     
-    /* 마지막 둔 돌 표시 (빨간색 점) */
     .last-move::after {
         content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
         width: 12px; height: 12px; background-color: #ff3333; border-radius: 50%; pointer-events: none;
@@ -75,7 +74,6 @@ html_code = """
     .stone-black { background-color: #111; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); background-image: radial-gradient(circle at 10px 10px, #555, #000); }
     .stone-white { background-color: #f9f9f9; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); background-image: radial-gradient(circle at 10px 10px, #fff, #ccc); }
     
-    /* 클릭 시 나타나는 반투명 미리보기 돌 */
     .preview-black { background-color: #111; opacity: 0.5; }
     .preview-white { background-color: #f9f9f9; opacity: 0.5; }
 </style>
@@ -84,12 +82,12 @@ html_code = """
 
 <div id="status-text">게임 데이터를 불러오는 중...</div>
 <div id="board-container"></div>
-<button id="submit-btn" onclick="submitMove()" disabled>두기 (제출)</button>
+<button id="submit-btn" onclick="submitMove()" disabled>제출 </button>
 
 <script>
     const dbUrl = "DB_URL_PLACEHOLDER";
     const myColor = COLOR_PLACEHOLDER;
-    const boardSize = 15;
+    const boardSize = 19; // 19x19로 변경
     const step = 40; const offset = 20; 
     
     const container = document.getElementById("board-container");
@@ -97,10 +95,9 @@ html_code = """
     const submitBtn = document.getElementById("submit-btn");
     
     let intersections = [];
-    let currentDataCache = null; // 가장 최근 게임 상태 저장
-    let selectedSpot = null;     // 유저가 클릭한 임시 위치 {r, c}
+    let currentDataCache = null; 
+    let selectedSpot = null;     
 
-    // 바둑판 생성
     for(let i=0; i<boardSize; i++) {
         let lh = document.createElement("div"); lh.className = "line-h"; lh.style.top = (offset + i * step) + "px"; container.appendChild(lh);
         let lv = document.createElement("div"); lv.className = "line-v"; lv.style.left = (offset + i * step) + "px"; container.appendChild(lv);
@@ -113,7 +110,7 @@ html_code = """
             dot.className = "intersection";
             dot.style.top = (offset + r * step) + "px";
             dot.style.left = (offset + c * step) + "px";
-            dot.onclick = () => selectSpot(r, c); // 바로 두는 게 아니라 '선택'만 함
+            dot.onclick = () => selectSpot(r, c); 
             container.appendChild(dot);
             intersections[r][c] = dot;
         }
@@ -145,7 +142,8 @@ html_code = """
             for(let j=-5; j<=5; j++) {
                 let nr = r + j*dr[i]; let nc = c + j*dc[i];
                 if(j === 0) str += "B"; 
-                else if(nr<0 || nr>=15 || nc<0 || nc>=15) str += "W";
+                // 15에서 boardSize(19)로 변경
+                else if(nr<0 || nr>=boardSize || nc<0 || nc>=boardSize) str += "W";
                 else if(board[nr][nc]===1) str += "B";
                 else if(board[nr][nc]===2) str += "W";
                 else str += "E";
@@ -186,7 +184,6 @@ html_code = """
             if(data && data.board) {
                 currentDataCache = data;
                 
-                // 만약 선택해둔 자리에 상대가 돌을 놨거나 내 턴이 아니게 되면 선택 취소
                 if(selectedSpot) {
                     if (data.turn !== myColor || data.board[selectedSpot.r][selectedSpot.c] !== 0) {
                         selectedSpot = null; 
@@ -202,7 +199,6 @@ html_code = """
         let data = currentDataCache;
         let boardData = data.board;
         
-        // 상태 텍스트 갱신
         if (data.winner && data.winner !== 0) {
             statusText.innerHTML = data.winner === 1 ? "🎉 <b>흑돌(⚫) 승리!</b>" : "🎉 <b>백돌(⚪) 승리!</b>";
             statusText.style.color = "#d93025";
@@ -212,12 +208,10 @@ html_code = """
             statusText.innerHTML = (isMyTurn ? "➡️ 내 차례입니다! " : "⏳ 상대방 대기 중... ") + (data.turn === 1 ? "흑(⚫)" : "백(⚪)");
             statusText.style.color = isMyTurn ? "#1a73e8" : "#000";
             
-            // 두기 버튼 활성화 로직
             if (isMyTurn && selectedSpot) submitBtn.disabled = false;
             else submitBtn.disabled = true;
         }
 
-        // 바둑판 그리기
         for(let r=0; r<boardSize; r++) {
             for(let c=0; c<boardSize; c++) {
                 let val = boardData[r][c];
@@ -230,18 +224,15 @@ html_code = """
                 } else if(val === 2) {
                     dot.classList.add("stone-white");
                 } else {
-                    // 금수 표시 (내 차례일 때만)
                     if (myColor === 1 && data.turn === 1 && !data.winner) {
                         if (isForbidden(boardData, r, c)) dot.classList.add("forbidden");
                     }
                 }
                 
-                // 마지막 둔 돌 빨간점 표시
                 if (data.lastMove && data.lastMove.r === r && data.lastMove.c === c) {
                     dot.classList.add("last-move");
                 }
                 
-                // 내가 방금 클릭한(선택한) 자리 반투명 표시
                 if (selectedSpot && selectedSpot.r === r && selectedSpot.c === c) {
                     dot.classList.add(myColor === 1 ? "preview-black" : "preview-white");
                 }
@@ -249,14 +240,13 @@ html_code = """
         }
     }
     
-    // 돌 위치 클릭 시 (임시 선택)
     function selectSpot(r, c) {
         if (!currentDataCache) return;
         let data = currentDataCache;
         
-        if (data.winner && data.winner !== 0) return; // 끝난 게임
-        if (data.turn !== myColor) return;            // 내 차례 아님
-        if (data.board[r][c] !== 0) return;           // 돌 이미 있음
+        if (data.winner && data.winner !== 0) return; 
+        if (data.turn !== myColor) return;            
+        if (data.board[r][c] !== 0) return;           
         
         if (myColor === 1 && isForbidden(data.board, r, c)) {
             alert("이곳은 금수(3-3, 4-4, 6목) 자리입니다!");
@@ -267,15 +257,13 @@ html_code = """
         updateBoardUI(); 
     }
 
-    // "두기" 버튼 클릭 시 (실제 서버로 전송)
     async function submitMove() {
         if(!selectedSpot || !currentDataCache) return;
         
-        submitBtn.disabled = true; // 중복 클릭 방지
+        submitBtn.disabled = true; 
         let r = selectedSpot.r;
         let c = selectedSpot.c;
         
-        // 최신 DB를 한 번 더 체크해서 충돌 방지
         let res = await fetch(dbUrl);
         let data = await res.json();
         
@@ -285,7 +273,7 @@ html_code = """
         }
 
         data.board[r][c] = myColor;
-        data.lastMove = {r: r, c: c}; // 마지막 둔 돌 위치 저장
+        data.lastMove = {r: r, c: c}; 
         
         if (checkWin(data.board, r, c, myColor)) {
             data.winner = myColor; 
@@ -308,14 +296,14 @@ html_code = """
 
 html_code = html_code.replace("DB_URL_PLACEHOLDER", DB_URL).replace("COLOR_PLACEHOLDER", str(st.session_state.my_color))
 
-# 버튼과 텍스트 공간이 추가되었으므로 높이를 750으로 넉넉하게 변경
-components.html(html_code, height=750) 
+# 19x19 화면 크기 확장에 맞춰 컴포넌트 전체 높이 여유있게 늘림 (750 -> 950)
+components.html(html_code, height=950) 
 
 st.divider()
 
 if st.button("🔄 게임 초기화 (새 게임 시작)"):
     empty_data = {
-        "board": [[0]*15 for _ in range(15)],
+        "board": [[0]*19 for _ in range(19)], # 초기화 시 파이썬 배열도 19x19로 변경
         "turn": 1,
         "winner": 0,
         "lastMove": None
